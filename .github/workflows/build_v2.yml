@@ -156,6 +156,7 @@ jobs:
           $iscc_path = "C:\Users\runneradmin\AppData\Local\Temp\inno\iscc"
           if (Test-Path $iscc_path) {
               & $iscc_path "/DMyAppVersion=$env:LATEST_VERSION" build.iss
+              cat compile.log
           } else {
               Write-Output "Inno Setup未安装成功，编译失败"
               exit 1
