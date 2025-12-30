@@ -42,7 +42,7 @@ jobs:
 
       - name: 拉取exe打包脚本（你的czgreat/Windows-MoviePilot）
         run: |
-          git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/czgreat/Windows-MoviePilot.git -b v2 Inno-Setup-MoviePilot
+          git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/czgreat/Windows-MoviePilot.git -b main Inno-Setup-MoviePilot
         working-directory: ${{ github.workspace }}
 
       - name: 拉取MoviePilot源码（你的czgreat/MoviePilot）
