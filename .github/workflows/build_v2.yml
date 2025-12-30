@@ -45,13 +45,9 @@ jobs:
           }
 
       - name: 拉取exe打包脚本（你的czgreat/Windows-MoviePilot）
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 强制用你的PAT鉴权
-          ref: v2
-          repository: ${{ secrets.REPO }}  # 对应你的czgreat/Windows-MoviePilot
-          path: 'Inno-Setup-MoviePilot'
-          fetch-depth: 1
+  run: |
+    git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/czgreat/Windows-MoviePilot.git -b v2 Inno-Setup-MoviePilot
+  working-directory: ${{ github.workspace }}
 
       - name: 拉取MoviePilot源码（你的czgreat/MoviePilot）
         uses: actions/checkout@v4
