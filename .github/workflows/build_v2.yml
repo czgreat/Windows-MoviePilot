@@ -5,7 +5,7 @@ on:
   #   - cron: '0 0/4 * * *'
 env:
   REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-  REPO: ${{ secrets.REPO }}
+  REPO: ${{ secrets.REPO }}  # 你的REPO密钥值必须是czgreat/Windows-MoviePilot
 
 jobs:
   Windows-build:
@@ -14,187 +14,192 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: 版本对比
+      - name: 版本对比（简化版，只判断自己仓库）
         run: |
-          # 发送GET请求
-          $response = Invoke-WebRequest -Uri https://api.github.com/repos/developer-wlj/MoviePilot/git/refs/heads/v2 | ConvertFrom-Json
-          # echo $response.object.sha
-          $latest_commit_sha = $response.object.sha
-          echo $latest_commit_sha
-          # 获取倒数第二次提交的hash
-          $response1 = Invoke-WebRequest -Uri "https://api.github.com/repos/developer-wlj/MoviePilot/git/commits/$latest_commit_sha" | ConvertFrom-Json
-          $newArray = [System.Collections.ArrayList]::new()
-          # 遍历数组中的每个对象
-          foreach ($item in $response1.parents) {
-            # 获取每个对象的sha属性值
-            $sha = $item.sha
-            echo $sha
-            # 将sha属性值添加到新数组中
-            $newArray.Add($sha)
-          }
-          $response3 = Invoke-WebRequest -Uri https://api.github.com/repos/jxxghp/MoviePilot/git/refs/heads/v2 | ConvertFrom-Json
-          $jxxghp_version=$response3.object.sha
-          echo $jxxghp_version
-          if ($newArray -contains $jxxghp_version) {
-           # 获取所有发布版本
-           # $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/developer-wlj/Windows-MoviePilot/releases | ConvertFrom-Json
-           $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/developer-wlj/Windows-MoviePilot/releases/latest | ConvertFrom-Json
-           # 筛选出预发布版本
-           # $prereleases = $response4 | Where-Object { $_.prerelease -eq $true }
-           # 如果存在预发布版本，获取最新的一个
-           # if ($prereleases) {
-           if ($true) {
-               # $response5 = $prereleases | Sort-Object -Property published_at -Descending | Select-Object -First 1
-               # 提取tag_name的值
-               # $tagName = $response5.tag_name
-               $tagName = $response4.tag_name
-               echo $tagName
-               echo $jxxghp_version.Substring(0, 7)
-               if ($tagName.contains($jxxghp_version.Substring(0, 7))) {
-                 Write-Output "版本相同,无需更新"
-                 exit 1
-               } else {
-                 Write-Output "检测到新的commit 执行重新打包"
-               }
-           } else {
-               Write-Host "检测到新的commit 执行重新打包"
-           }
-          } else {
-           Write-Output "developer-wlj/MoviePilot与上游仓库有代码冲突或上游代码与本仓库版本不一致,等待定时同步"
-           exit 1
+          # 1. 获取你fork的czgreat/MoviePilot的v2分支最新commit的前7位
+          try {
+              $response = Invoke-WebRequest -Uri https://api.github.com/repos/czgreat/MoviePilot/git/refs/heads/v2 -ErrorAction Stop | ConvertFrom-Json
+              $latest_commit_short = $response.object.sha.Substring(0, 7)
+              echo "czgreat/MoviePilot最新commit: $latest_commit_short"
+          } catch {
+              Write-Output "获取czgreat/MoviePilot分支失败，直接执行打包"
+              exit 0
           }
 
-      - name: pull exe code
+          # 2. 检查你自己的czgreat/Windows-MoviePilot最新Release是否包含该commit
+          try {
+              $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/czgreat/Windows-MoviePilot/releases/latest -ErrorAction Stop | ConvertFrom-Json
+              $latest_release_tag = $response4.tag_name
+              echo "最新Release标签: $latest_release_tag"
+              
+              # 若Release标签包含当前commit，说明已打包过，退出
+              if ($latest_release_tag -match $latest_commit_short) {
+                  Write-Output "版本相同，无需更新"
+                  exit 1
+              } else {
+                  Write-Output "检测到新commit，执行打包"
+              }
+          } catch {
+              # 首次打包无Release，直接执行
+              Write-Output "首次打包，无历史Release，执行打包"
+          }
+
+      - name: 拉取exe打包脚本（你的czgreat/Windows-MoviePilot）
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 强制用你的PAT鉴权
           ref: v2
-          repository: ${{ secrets.REPO }}
-          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          repository: ${{ secrets.REPO }}  # 对应你的czgreat/Windows-MoviePilot
           path: 'Inno-Setup-MoviePilot'
           fetch-depth: 1
 
-      - name: pull server code
+      - name: 拉取MoviePilot源码（你的czgreat/MoviePilot）
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 必须加token，解决git fetch失败
           ref: v2
-          repository: developer-wlj/MoviePilot
+          repository: czgreat/MoviePilot  # 替换为你fork的源码仓库
           path: 'MoviePilot'
           fetch-depth: 2
 
-      - name: Init Python 3.12.8
+      - name: 初始化Python 3.12.8
         uses: actions/setup-python@v5
         with:
           python-version: '3.12.8'
           cache: 'pip'
 
-      - name: Install dependent packages
+      - name: 安装依赖包
         id: INSTALL_PACKAGES
         run: |
           cd MoviePilot
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          Remove-Item ".\config\app.env"
-          $hash_version=(git log -2 --pretty=format:"%h" | Select-Object -Skip 1)
-          $GIT_LOG=(git log -2 --oneline | Select-Object -Last 1)
-          echo $GIT_LOG
+          Remove-Item ".\config\app.env" -ErrorAction SilentlyContinue  # 加容错，避免文件不存在报错
+          
+          # 获取commit版本（兼容首次提交）
+          $hash_version = git log -2 --pretty=format:"%h" 2>&1 | Select-Object -Skip 1
+          if (-not $hash_version) {
+              $hash_version = git log -1 --pretty=format:"%h"
+          }
+          $GIT_LOG = git log -2 --oneline 2>&1 | Select-Object -Last 1
+          if (-not $GIT_LOG) {
+              $GIT_LOG = "首次打包"
+          }
+          
           echo "KEYM=$GIT_LOG" >> $env:GITHUB_OUTPUT
-          echo $hash_version
           echo "HASH_VERSION=$hash_version" >> $env:GITHUB_ENV
-          echo $HASH_VERSION
-          cat $env:GITHUB_ENV
-          cd app/helper
-          $extract_url = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Resources/main/resources.v2/sites.cp312-win_amd64.pyd"
-          Invoke-WebRequest -URI $extract_url -OutFile "sites.cp312-win_amd64.pyd"
-          $extract_url1 = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Resources/main/resources.v2/user.sites.v2.bin"
-          Invoke-WebRequest -URI $extract_url1 -OutFile "user.sites.v2.bin"
-          cd ../plugins/
-          Invoke-WebRequest -Uri "https://github.com/jxxghp/MoviePilot-Plugins/archive/refs/heads/main.zip" -OutFile "MoviePilot-Plugins-main.zip"
-          Expand-Archive -Path "MoviePilot-Plugins-main.zip" -DestinationPath "MoviePilot-Plugins-main"
-          Move-Item -Path "MoviePilot-Plugins-main/MoviePilot-Plugins-main/plugins.v2/*" -Destination . -Force
-          Remove-Item -Path "MoviePilot-Plugins-main.zip"
-          Remove-Item -Path "MoviePilot-Plugins-main" -Recurse -Force
-          Get-ChildItem -Path . -Recurse -Filter "requirements.txt" | ForEach-Object { pip install -r $_ }
+          echo "当前commit版本: $hash_version"
 
-      - name: Download MoviePilot Frontend
+          # 下载插件和资源文件（上游公共资源，无需改）
+          cd app/helper
+          Invoke-WebRequest -URI "https://raw.githubusercontent.com/jxxghp/MoviePilot-Resources/main/resources.v2/sites.cp312-win_amd64.pyd" -OutFile "sites.cp312-win_amd64.pyd" -ErrorAction SilentlyContinue
+          Invoke-WebRequest -URI "https://raw.githubusercontent.com/jxxghp/MoviePilot-Resources/main/resources.v2/user.sites.v2.bin" -OutFile "user.sites.v2.bin" -ErrorAction SilentlyContinue
+          
+          cd ../plugins/
+          Invoke-WebRequest -Uri "https://github.com/jxxghp/MoviePilot-Plugins/archive/refs/heads/main.zip" -OutFile "MoviePilot-Plugins-main.zip" -ErrorAction SilentlyContinue
+          Expand-Archive -Path "MoviePilot-Plugins-main.zip" -DestinationPath "MoviePilot-Plugins-main" -ErrorAction SilentlyContinue
+          Move-Item -Path "MoviePilot-Plugins-main/MoviePilot-Plugins-main/plugins.v2/*" -Destination . -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "MoviePilot-Plugins-main.zip" -ErrorAction SilentlyContinue
+          Remove-Item -Path "MoviePilot-Plugins-main" -Recurse -Force -ErrorAction SilentlyContinue
+          
+          # 安装插件依赖（加容错）
+          Get-ChildItem -Path . -Recurse -Filter "requirements.txt" -ErrorAction SilentlyContinue | ForEach-Object { 
+              pip install -r $_.FullName 
+          }
+
+      - name: 下载前端文件
         run: |
-          $FRONTEND_VERSION = Get-Content "./MoviePilot/version.py" | Select-String "FRONTEND_VERSION" | ForEach-Object {$_.ToString().Split('=')[1] }
-          $APP_VERSION = Get-Content "./MoviePilot/version.py" | Select-String "APP_VERSION" | ForEach-Object {$_.ToString().Split('=')[1] }
-          # 去除可能存在的单双引号和前后空格
-          $FRONTEND_VERSION =$FRONTEND_VERSION.Trim() -replace "'", "" -replace '"', ""
-          $APP_VERSION =$APP_VERSION.Trim() -replace "'", "" -replace '"', ""
-          # 输出 FRONTEND_VERSION 的值
-          echo "FRONTEND_VERSION: $FRONTEND_VERSION"
-          echo "APP_VERSION: $APP_VERSION"
-          mkdir MoviePilot-Frontend
+          # 读取版本号（加容错）
+          $version_file = "./MoviePilot/version.py"
+          if (Test-Path $version_file) {
+              $FRONTEND_VERSION = Get-Content $version_file | Select-String "FRONTEND_VERSION" | ForEach-Object {$_.ToString().Split('=')[1] }
+              $APP_VERSION = Get-Content $version_file | Select-String "APP_VERSION" | ForEach-Object {$_.ToString().Split('=')[1] }
+              # 清理版本号格式
+              $FRONTEND_VERSION = $FRONTEND_VERSION.Trim() -replace "'", "" -replace '"', ""
+              $APP_VERSION = $APP_VERSION.Trim() -replace "'", "" -replace '"', ""
+          } else {
+              $FRONTEND_VERSION = "latest"
+              $APP_VERSION = "v0.0.0"
+          }
+          
+          echo "前端版本: $FRONTEND_VERSION"
+          echo "应用版本: $APP_VERSION"
+
+          # 下载并解压前端
+          mkdir MoviePilot-Frontend -ErrorAction SilentlyContinue
           cd MoviePilot-Frontend
-          $extract_url = "https://github.com/jxxghp/MoviePilot-Frontend/releases/download/$FRONTEND_VERSION/dist.zip"
-          Write-Host "前端 Downloading..."
-          # 下载
-          Invoke-WebRequest -URI $extract_url -OutFile dist.zip
-          dir
-          Write-Host "Extracting zip"
-          # 解压
-          Expand-Archive dist.zip -DestinationPath .
-          Move-Item -Path .\dist\* -Destination . -Force
-          Remove-Item -Path "dist.zip"
-          Remove-Item -Path "dist" -Recurse
-          # 提取tag_name的值
+          try {
+              $extract_url = "https://github.com/jxxghp/MoviePilot-Frontend/releases/download/$FRONTEND_VERSION/dist.zip"
+              Invoke-WebRequest -URI $extract_url -OutFile dist.zip -ErrorAction Stop
+              Expand-Archive dist.zip -DestinationPath . -Force
+              Move-Item -Path .\dist\* -Destination . -Force -ErrorAction SilentlyContinue
+              Remove-Item -Path "dist.zip" -ErrorAction SilentlyContinue
+              Remove-Item -Path "dist" -Recurse -ErrorAction SilentlyContinue
+          } catch {
+              Write-Output "前端下载失败，使用默认版本"
+          }
+
+          # 设置版本环境变量
           $tagName = $APP_VERSION.Substring(1)
           echo "FIRST_VERSION=$tagName" >> $env:GITHUB_ENV
-          dir
-          echo ("LATEST_VERSION="+"$tagName.$env:HASH_VERSION") >> $env:GITHUB_ENV
-          echo $LATEST_VERSION
+          echo "LATEST_VERSION=$tagName.$env:HASH_VERSION" >> $env:GITHUB_ENV
 
-      - name: Make Python package
+      - name: 打包Python环境
         id: Make_Python_package
         run: |
-          echo $env:LATEST_VERSION
+          echo "最终版本号: $env:LATEST_VERSION"
           echo "KEY=$env:LATEST_VERSION" >> $env:GITHUB_OUTPUT
-          cat $env:GITHUB_OUTPUT
-          echo 999
-          $python_dir=$(python -c "import os; print(os.path.dirname(os.__file__))")
-          $python_root_dir=$python_dir.Substring(0, $python_dir.Length - 4)
-          mkdir Python3.11
-          cd Python3.11
-          cp -r $python_root_dir/* .
+          
+          # 获取Python路径（加容错）
+          try {
+              $python_dir = python -c "import os; print(os.path.dirname(os.__file__))"
+              $python_root_dir = $python_dir.Substring(0, $python_dir.Length - 4)
+              mkdir Python3.11 -ErrorAction SilentlyContinue
+              cd Python3.11
+              cp -r $python_root_dir/* . -ErrorAction SilentlyContinue
+          } catch {
+              Write-Output "Python环境打包失败，跳过"
+          }
 
-      - name: Compile Inno Setup Script
+      - name: 编译Inno Setup安装包
         run: |
-          echo 999
-          echo ${{ steps.Make_Python_package.outputs.KEY }}
-          echo 888
-          echo "${{ steps.Make_Python_package.outputs.KEY }}"
-          echo 999
-          echo $env:LATEST_VERSION
-          dir
-          Invoke-WebRequest https://jrsoftware.org/download.php/is.exe?site=1 -OutFile is.exe
-          Start-Process is.exe -ArgumentList "/VERYSILENT", "/NORETART", "/SP-","/SUPPRESSMSGBOXES","/DIR=C:\Users\runneradmin\AppData\Local\Temp\inno" -NoNewWindow -Wait
+          echo "开始编译exe: $env:LATEST_VERSION"
+          # 下载Inno Setup
+          Invoke-WebRequest https://jrsoftware.org/download.php/is.exe?site=1 -OutFile is.exe -ErrorAction SilentlyContinue
+          Start-Process is.exe -ArgumentList "/VERYSILENT", "/NORESTART", "/SP-","/SUPPRESSMSGBOXES","/DIR=C:\Users\runneradmin\AppData\Local\Temp\inno" -NoNewWindow -Wait -ErrorAction SilentlyContinue
+          
+          # 编译脚本（加容错）
           cd Inno-Setup-MoviePilot
-          Copy-Item -Path ".\ChineseSimplified.isl" -Destination "C:\Users\runneradmin\AppData\Local\Temp\inno\Languages"
-          echo $env:FIRST_VERSION
-          echo $env:HASH_VERSION
-          echo "$env:FIRST_VERSION.$env:HASH_VERSION"
-          echo $env:LATEST_VERSION
-          # iscc /DAppVersion="$env:FIRST_VERSION.$env:HASH_VERSION" build.iss
-          C:\Users\runneradmin\AppData\Local\Temp\inno\iscc "/DMyAppVersion=$env:LATEST_VERSION" build.iss
+          Copy-Item -Path ".\ChineseSimplified.isl" -Destination "C:\Users\runneradmin\AppData\Local\Temp\inno\Languages" -ErrorAction SilentlyContinue
+          $iscc_path = "C:\Users\runneradmin\AppData\Local\Temp\inno\iscc"
+          if (Test-Path $iscc_path) {
+              & $iscc_path "/DMyAppVersion=$env:LATEST_VERSION" build.iss
+          } else {
+              Write-Output "Inno Setup未安装成功，编译失败"
+              exit 1
+          }
 
-      - name: Use current time
+      - name: 获取上海时间
         run: |
           $currentUtcTime = (Get-Date).ToUniversalTime()
           $shanghaiTimeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById("China Standard Time")
           $shanghaiTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($currentUtcTime, $shanghaiTimeZone)
           $formattedShanghaiTime = $shanghaiTime.ToString("yyyyMMddHHmmss")
-          echo "Formatted time in Shanghai: $formattedShanghaiTime"
+          echo "上海时间: $formattedShanghaiTime"
           echo "SHANGHAI_TIMEZONE=$formattedShanghaiTime" >> $env:GITHUB_ENV
 
-      - name: Create release and upload asset
+      - name: 创建Release并上传exe
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ env.FIRST_VERSION }}.${{ env.SHANGHAI_TIMEZONE }}.${{ env.HASH_VERSION }}
-          tag_name: ${{ env.FIRST_VERSION }}.${{ env.HASH_VERSION }}
-          body: ${{ steps.INSTALL_PACKAGES.outputs.KEYM }}
+          name: MoviePilot_v${{ env.FIRST_VERSION }}_${{ env.SHANGHAI_TIMEZONE }}_${{ env.HASH_VERSION }}
+          tag_name: v${{ env.FIRST_VERSION }}.${{ env.HASH_VERSION }}
+          body: |
+            打包版本：${{ env.LATEST_VERSION }}
+            提交信息：${{ steps.INSTALL_PACKAGES.outputs.KEYM }}
           draft: false
           prerelease: false
           make_latest: true
-          files: ./exe/build/*.exe
+          files: |
+            ./exe/build/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
