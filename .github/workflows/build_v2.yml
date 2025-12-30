@@ -127,7 +127,7 @@ jobs:
 
           $tagName = $APP_VERSION.Substring(1)
           echo "FIRST_VERSION=$tagName" >> $env:GITHUB_ENV
-          echo "LATEST_VERSION=$tagName.$env:HASH_VERSION" >> $env:GITHUB_ENV
+          echo "LATEST_VERSION=$tagName.$(($env:HASH_VERSION -replace '[a-zA-Z]', ''))" >> $env:GITHUB_ENV
 
       - name: 打包Python环境
         id: Make_Python_package
