@@ -5,7 +5,7 @@ on:
   #   - cron: '0 0/4 * * *'
 env:
   REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-  REPO: ${{ secrets.REPO }}  # 你的REPO密钥值必须是czgreat/Windows-MoviePilot
+  REPO: ${{ secrets.REPO }}
 
 jobs:
   Windows-build:
@@ -16,7 +16,6 @@ jobs:
     steps:
       - name: 版本对比（简化版，只判断自己仓库）
         run: |
-          # 1. 获取你fork的czgreat/MoviePilot的v2分支最新commit的前7位
           try {
               $response = Invoke-WebRequest -Uri https://api.github.com/repos/czgreat/MoviePilot/git/refs/heads/v2 -ErrorAction Stop | ConvertFrom-Json
               $latest_commit_short = $response.object.sha.Substring(0, 7)
@@ -26,13 +25,11 @@ jobs:
               exit 0
           }
 
-          # 2. 检查你自己的czgreat/Windows-MoviePilot最新Release是否包含该commit
           try {
               $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/czgreat/Windows-MoviePilot/releases/latest -ErrorAction Stop | ConvertFrom-Json
               $latest_release_tag = $response4.tag_name
               echo "最新Release标签: $latest_release_tag"
               
-              # 若Release标签包含当前commit，说明已打包过，退出
               if ($latest_release_tag -match $latest_commit_short) {
                   Write-Output "版本相同，无需更新"
                   exit 1
@@ -40,21 +37,20 @@ jobs:
                   Write-Output "检测到新commit，执行打包"
               }
           } catch {
-              # 首次打包无Release，直接执行
               Write-Output "首次打包，无历史Release，执行打包"
           }
 
       - name: 拉取exe打包脚本（你的czgreat/Windows-MoviePilot）
-  run: |
-    git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/czgreat/Windows-MoviePilot.git -b v2 Inno-Setup-MoviePilot
-  working-directory: ${{ github.workspace }}
+        run: |
+          git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/czgreat/Windows-MoviePilot.git -b v2 Inno-Setup-MoviePilot
+        working-directory: ${{ github.workspace }}
 
       - name: 拉取MoviePilot源码（你的czgreat/MoviePilot）
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 必须加token，解决git fetch失败
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           ref: v2
-          repository: czgreat/MoviePilot  # 替换为你fork的源码仓库
+          repository: czgreat/MoviePilot
           path: 'MoviePilot'
           fetch-depth: 2
 
@@ -70,9 +66,8 @@ jobs:
           cd MoviePilot
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          Remove-Item ".\config\app.env" -ErrorAction SilentlyContinue  # 加容错，避免文件不存在报错
+          Remove-Item ".\config\app.env" -ErrorAction SilentlyContinue
           
-          # 获取commit版本（兼容首次提交）
           $hash_version = git log -2 --pretty=format:"%h" 2>&1 | Select-Object -Skip 1
           if (-not $hash_version) {
               $hash_version = git log -1 --pretty=format:"%h"
@@ -86,7 +81,6 @@ jobs:
           echo "HASH_VERSION=$hash_version" >> $env:GITHUB_ENV
           echo "当前commit版本: $hash_version"
 
-          # 下载插件和资源文件（上游公共资源，无需改）
           cd app/helper
           Invoke-WebRequest -URI "https://raw.githubusercontent.com/jxxghp/MoviePilot-Resources/main/resources.v2/sites.cp312-win_amd64.pyd" -OutFile "sites.cp312-win_amd64.pyd" -ErrorAction SilentlyContinue
           Invoke-WebRequest -URI "https://raw.githubusercontent.com/jxxghp/MoviePilot-Resources/main/resources.v2/user.sites.v2.bin" -OutFile "user.sites.v2.bin" -ErrorAction SilentlyContinue
@@ -98,19 +92,16 @@ jobs:
           Remove-Item -Path "MoviePilot-Plugins-main.zip" -ErrorAction SilentlyContinue
           Remove-Item -Path "MoviePilot-Plugins-main" -Recurse -Force -ErrorAction SilentlyContinue
           
-          # 安装插件依赖（加容错）
           Get-ChildItem -Path . -Recurse -Filter "requirements.txt" -ErrorAction SilentlyContinue | ForEach-Object { 
               pip install -r $_.FullName 
           }
 
       - name: 下载前端文件
         run: |
-          # 读取版本号（加容错）
           $version_file = "./MoviePilot/version.py"
           if (Test-Path $version_file) {
               $FRONTEND_VERSION = Get-Content $version_file | Select-String "FRONTEND_VERSION" | ForEach-Object {$_.ToString().Split('=')[1] }
               $APP_VERSION = Get-Content $version_file | Select-String "APP_VERSION" | ForEach-Object {$_.ToString().Split('=')[1] }
-              # 清理版本号格式
               $FRONTEND_VERSION = $FRONTEND_VERSION.Trim() -replace "'", "" -replace '"', ""
               $APP_VERSION = $APP_VERSION.Trim() -replace "'", "" -replace '"', ""
           } else {
@@ -121,7 +112,6 @@ jobs:
           echo "前端版本: $FRONTEND_VERSION"
           echo "应用版本: $APP_VERSION"
 
-          # 下载并解压前端
           mkdir MoviePilot-Frontend -ErrorAction SilentlyContinue
           cd MoviePilot-Frontend
           try {
@@ -135,7 +125,6 @@ jobs:
               Write-Output "前端下载失败，使用默认版本"
           }
 
-          # 设置版本环境变量
           $tagName = $APP_VERSION.Substring(1)
           echo "FIRST_VERSION=$tagName" >> $env:GITHUB_ENV
           echo "LATEST_VERSION=$tagName.$env:HASH_VERSION" >> $env:GITHUB_ENV
@@ -146,7 +135,6 @@ jobs:
           echo "最终版本号: $env:LATEST_VERSION"
           echo "KEY=$env:LATEST_VERSION" >> $env:GITHUB_OUTPUT
           
-          # 获取Python路径（加容错）
           try {
               $python_dir = python -c "import os; print(os.path.dirname(os.__file__))"
               $python_root_dir = $python_dir.Substring(0, $python_dir.Length - 4)
@@ -160,11 +148,9 @@ jobs:
       - name: 编译Inno Setup安装包
         run: |
           echo "开始编译exe: $env:LATEST_VERSION"
-          # 下载Inno Setup
           Invoke-WebRequest https://jrsoftware.org/download.php/is.exe?site=1 -OutFile is.exe -ErrorAction SilentlyContinue
           Start-Process is.exe -ArgumentList "/VERYSILENT", "/NORESTART", "/SP-","/SUPPRESSMSGBOXES","/DIR=C:\Users\runneradmin\AppData\Local\Temp\inno" -NoNewWindow -Wait -ErrorAction SilentlyContinue
           
-          # 编译脚本（加容错）
           cd Inno-Setup-MoviePilot
           Copy-Item -Path ".\ChineseSimplified.isl" -Destination "C:\Users\runneradmin\AppData\Local\Temp\inno\Languages" -ErrorAction SilentlyContinue
           $iscc_path = "C:\Users\runneradmin\AppData\Local\Temp\inno\iscc"
