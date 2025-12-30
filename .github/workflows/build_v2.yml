@@ -37,8 +37,8 @@ jobs:
           echo $jxxghp_version
           if ($newArray -contains $jxxghp_version) {
            # 获取所有发布版本
-           # $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/developer-wlj/Windows-MoviePilot/releases | ConvertFrom-Json
-           $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/developer-wlj/Windows-MoviePilot/releases/latest | ConvertFrom-Json
+           # $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/czgreat/Windows-MoviePilot/releases | ConvertFrom-Json
+           $response4 = Invoke-WebRequest -Uri https://api.github.com/repos/czgreat/Windows-MoviePilot/releases/latest | ConvertFrom-Json
            # 筛选出预发布版本
            # $prereleases = $response4 | Where-Object { $_.prerelease -eq $true }
            # 如果存在预发布版本，获取最新的一个
